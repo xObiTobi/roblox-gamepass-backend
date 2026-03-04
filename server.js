@@ -1,3 +1,17 @@
+const express = require("express");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+
+const PORT = process.env.PORT || 3000;
+
+// Health route
+app.get("/health", (req, res) => {
+    res.json({ status: "ok", timestamp: Date.now() });
+});
+
+// Gamepasses route
 app.get("/gamepasses/:userId", async (req, res) => {
     const userId = req.params.userId;
 
@@ -24,4 +38,8 @@ app.get("/gamepasses/:userId", async (req, res) => {
         console.error(error);
         res.status(500).json({ error: "Failed to fetch gamepasses" });
     }
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
