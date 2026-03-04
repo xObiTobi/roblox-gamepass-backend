@@ -1,45 +1,74 @@
+// server.js (dynamic per-player)
 const express = require("express");
-const cors = require("cors");
-
+const fetch = require("node-fetch"); // Node <18
 const app = express();
-app.use(cors());
-
 const PORT = process.env.PORT || 3000;
+const MAX_GAMES = 50;
+const MAX_GAMEPASSES = 100;
 
-// Health route
-app.get("/health", (req, res) => {
-    res.json({ status: "ok", timestamp: Date.now() });
-});
+app.use(express.json());
 
-// Gamepasses route
-app.get("/gamepasses/:userId", async (req, res) => {
-    const userId = req.params.userId;
+// Fetch public games
+async function getPublicGames(userId) {
+  const url = `https://games.roblox.com/v1/users/${userId}/games?accessFilter=Public&limit=${MAX_GAMES}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch public games: ${res.status}`);
+  const data = await res.json();
+  return data.data || [];
+}
+
+// Fetch gamepasses per universe
+async function getGamepassesForUniverse(universeId) {
+  const url = `https://games.roblox.com/v1/games/${universeId}/game-passes?limit=${MAX_GAMEPASSES}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch gamepasses: ${res.status}`);
+  const data = await res.json();
+  return data.data || [];
+}
+
+// Fetch all gamepasses for given userId
+async function getAllGamepasses(userId) {
+  const games = await getPublicGames(userId);
+  const allGamepasses = [];
+
+  for (const game of games) {
+    const universeId = game.id || game.universeId;
+    if (!universeId) continue;
 
     try {
-        const response = await fetch(
-            `https://catalog.roblox.com/v1/search/items?creatorType=User&creatorTargetId=${userId}&assetTypes=34&limit=100`
-        );
-
-        const data = await response.json();
-
-        if (!data.data) {
-            return res.json([]);
-        }
-
-        const gamepasses = data.data.map(item => ({
-            id: item.id,
-            name: item.name,
-            price: item.price
-        }));
-
-        res.json(gamepasses);
-
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch gamepasses" });
+      const gamepasses = await getGamepassesForUniverse(universeId);
+      gamepasses.forEach(gp => {
+        allGamepasses.push({
+          id: gp.id,
+          name: gp.name,
+          price: gp.price || 0,
+          iconUrl: gp.iconUrl,
+          universeId: universeId
+        });
+      });
+    } catch (err) {
+      console.warn(`Failed for universe ${universeId}: ${err.message}`);
     }
+  }
+
+  return allGamepasses;
+}
+
+// Dynamic endpoint for any player
+// Example: /gamepasses?userId=12345678
+app.get("/gamepasses", async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId) return res.status(400).json({ success: false, message: "Missing userId query parameter" });
+
+  try {
+    const gamepasses = await getAllGamepasses(userId);
+    res.json({ success: true, gamepasses });
+  } catch (err) {
+    console.error("Error fetching gamepasses:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`RoDonate Gamepasses API running on port ${PORT}`);
 });
